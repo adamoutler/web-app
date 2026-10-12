@@ -1,0 +1,14 @@
+# Build output
+pages/
+
+# OS and Editor artifacts
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Node / logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

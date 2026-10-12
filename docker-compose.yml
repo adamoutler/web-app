@@ -1,0 +1,10 @@
+services:
+  joplin-webapp:
+    image: ghcr.io/adamoutler/web-app:latest
+    container_name: joplin-webapp
+    restart: unless-stopped
+    ports:
+      - "8088:80"
+    # Note: Access the web app over HTTPS via a reverse proxy (e.g., Nginx, Caddy, Traefik).
+    # Cross-Origin Isolation (COOP & COEP) is enabled inside this container.
+    # Joplin Server must have CORS headers configured to allow access from your web app domain.

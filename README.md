@@ -1,54 +1,62 @@
-# Joplin Web App
+# Joplin Web App (Dockerized)
 
-This repository deploys the Joplin web client to https://app.joplincloud.com/ with GitHub pages.
+A self-hostable Docker container for the official [Joplin Web Client](https://github.com/laurent22/joplin).
 
-The web app source code can be found in [the main Joplin repository](https://github.com/laurent22/joplin).
+This repository is maintained as an independent container distribution for self-hosters and local users. The upstream Joplin monorepo code is integrated as a git submodule (`joplin/`), cleanly separating container orchestration from the application source.
 
-## Running Joplin WebApp with Docker
+Container image: **`ghcr.io/adamoutler/web-app:latest`**
 
-**Prerequisites:**
+---
 
-* Docker installed and running.
-* A running instance of Joplin Server, accessible via a URL (e.g., `https://joplin-server.yourdomain.com`).
+## Quick Start with Docker
 
-**1. Pull the Docker Image:**
+### Option 1: Docker Compose (Recommended)
 
-Fetch the latest official Joplin WebApp image:
+Create or use the included `docker-compose.yml`:
 
-```bash
-docker pull ghcr.io/adamoutler/web-app:latest
+```yaml
+services:
+  joplin-webapp:
+    image: ghcr.io/adamoutler/web-app:latest
+    container_name: joplin-webapp
+    restart: unless-stopped
+    ports:
+      - "8088:80"
 ```
 
-**2. Run the Docker Container:**
+Start the container:
+```bash
+docker compose up -d
+```
 
-Run the container, mapping a host port (e.g., `8088`) to the container's port `80`, and giving it a recognizable name. Running in detached mode (`-d`) is recommended for background operation.
+### Option 2: Docker CLI
 
 ```bash
 docker run -d --name joplin-webapp -p 8088:80 ghcr.io/adamoutler/web-app:latest
 ```
 
-* You will initially access the WebApp via `http://<your-docker-host-ip>:8088`.
-* **Note:** The WebApp container itself doesn't handle HTTPS. This is typically managed by a reverse proxy (see Step 3).
+Once running, access the web client at `http://<your-docker-host-ip>:8088` (or via your HTTPS reverse proxy).
 
-**3. Configure HTTPS and Reverse Proxy:**
+---
 
-Both the Joplin WebApp and Joplin Server **must** be served over HTTPS for secure communication and browser compatibility. A reverse proxy (like Nginx, Apache, Caddy, or Traefik) is the standard way to achieve this.
+## Production Setup & Reverse Proxy
 
-* Set up a reverse proxy for the Joplin WebApp container (listening on port `8088` locally) to serve it under your desired HTTPS domain (e.g., `https://joplin-webapp.yourdomain.com`).
-* You can obtain free SSL/TLS certificates from [Let's Encrypt](https://letsencrypt.org/).
+> [!IMPORTANT]
+> The Joplin Web App relies on WebAssembly with SQLite workers (`SharedArrayBuffer`), which requires **Cross-Origin Isolation**. The container automatically serves the necessary `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` headers. Both the Web App and your Joplin Server **must be served over HTTPS**.
 
-**4. Configure CORS Headers on Joplin Server:**
+### 1. Reverse Proxy for Joplin Web App
 
-Because the WebApp (e.g., `https://joplin-webapp.yourdomain.com`) and the Joplin Server (e.g., `https://joplin-server.yourdomain.com`) are running on different origins (domains/ports), you must configure Cross-Origin Resource Sharing (CORS) headers on the **Joplin Server's reverse proxy**. This tells the browser that it's safe for the WebApp to make requests to the Server API.
+Point your reverse proxy (Nginx, Traefik, Caddy, etc.) to container port `8088`. Ensure HTTPS/TLS is configured (e.g. using Let's Encrypt).
 
-**Nginx Example:**
+### 2. Configure CORS Headers on Joplin Server
 
-Add the following within the `server` or `location` block handling your Joplin Server traffic in your Nginx configuration.
+Because your Joplin Web App (e.g., `https://joplin-webapp.yourdomain.com`) and Joplin Server (e.g., `https://joplin-server.yourdomain.com`) run on distinct origins, you must configure CORS headers on the **Joplin Server reverse proxy**:
 
+#### Nginx Example (Joplin Server reverse proxy):
 ```nginx
-# Set this variable to the exact origin (scheme + domain + port)
-# from which your Joplin WebApp is served.
-set $my_origin 'https://joplin-webapp.yourdomain.com; # <-- CHANGE THIS
+# Set this variable to the exact origin from which your Joplin WebApp is served:
+set $my_origin 'https://joplin-webapp.yourdomain.com'; # <-- CHANGE THIS
+
 if ($request_method = 'OPTIONS') {
     add_header 'Access-Control-Allow-Origin'  $my_origin always; 
     add_header 'Access-Control-Allow-Credentials' 'true' always; 
@@ -65,66 +73,62 @@ add_header Access-Control-Allow-Origin  $my_origin  always;
 add_header Access-Control-Allow-Credentials 'true' always;
 ```
 
-* **Crucial:** Replace `https://joplin-webapp.yourdomain.com` with the *actual URL* you use to access the Joplin WebApp in your browser.
-* **Apache/Other Proxies:** Equivalent directives exist for other servers (e.g., `Header set Access-Control-Allow-Origin "..."` in Apache). Consult your reverse proxy's documentation for CORS configuration.
+---
 
-**5. (Potential) Configure Joplin Server URL in WebApp:**
+## Building from Source
 
-The WebApp needs to know the URL of your Joplin Server API. This is often configured via environment variables passed to the Docker container. Check the Joplin WebApp's documentation for the specific environment variable name (it might be something like `JOPLIN_API_BASE_URL` or similar).
+This repository maintains the Joplin codebase as a git submodule in `./joplin`.
 
-Example if the variable was `JOPLIN_API_BASE_URL`:
+### Prerequisites
+- Git
+- Node.js (>= 18)
+- Corepack (`corepack enable`)
+- Docker
 
+### 1. Clone with Submodules
 ```bash
-docker run -d --name joplin-webapp \
--p 8088:80 \
--e JOPLIN_API_BASE_URL='[https://joplin-server.yourdomain.com](https://joplin-server.yourdomain.com)' \
-ghcr.io/joplin/web-app:latest
+git clone --recurse-submodules https://github.com/adamoutler/web-app.git
+cd web-app
 ```
 
-* Replace `https://joplin-server.yourdomain.com` with the public HTTPS URL of your Joplin Server.
-* **Note:** Consult the official Joplin WebApp documentation or image source for the correct environment variable name if needed.
+### 2. Update to Latest Joplin Release
+Run the automated update script to discover and checkout the latest official Joplin release branch:
+```bash
+./scripts/update-submodule.sh
+```
 
-**6. Access the Application:**
+### 3. Build & Stage Web App
+Compile the Joplin web client and stage it into `pages/`:
+```bash
+./scripts/build.sh
+```
 
-Once configured, you should be able to access the Joplin WebApp via the HTTPS URL you set up in your reverse proxy (e.g., `https://joplin-webapp.yourdomain.com`). It will then communicate with your Joplin Server in the background.
+### 4. Build Docker Container
+To build the Docker container image locally:
+```bash
+./scripts/build.sh --docker
+# Or manually:
+docker build -t ghcr.io/adamoutler/web-app:latest .
+```
 
+---
+
+## CI/CD Automation
+
+The GitHub Actions workflow in [`.github/workflows/deploy-github-pages.yml`](.github/workflows/deploy-github-pages.yml):
+- Dynamically discovers the newest Joplin `release-*` branch.
+- Compiles the web application via Webpack.
+- Builds multi-architecture container images (`linux/amd64` and `linux/arm64`).
+- Publishes to `ghcr.io/adamoutler/web-app:latest` and tagged version releases.
+- Deploys static build artifacts to GitHub Pages.
+- Runs automatically on push to `main`, weekly via cron (`0 0 * * 0`), and manually via `workflow_dispatch`.
+
+---
 
 ## FAQ
 
-### What is it?
+### What is Joplin Web?
+Joplin Web is the Joplin client running directly in a web browser using WebAssembly. It is local-first, storing notes and attachments locally in browser storage while synchronizing with your configured Joplin Server or sync target.
 
-Joplin Web is Joplin Mobile, running in a web browser.
-
-### Where is my data stored?
-
-Like Joplin Mobile, Joplin Web is local-first. Notes and attachments are stored locally on your computer, but can optionally be synced with one of the supported sync targets. As a result, Joplin Web can be used offline.
-
-### What browsers does it support?
-
-The Joplin web app works best in recent versions of Chrome and Safari. It can also be used in Firefox, however, it may take a very long time to start.
-
-Some features are available only on certain platforms:
-- File system sync[^1] (as of July 2024):
-	- ✅ Chrome (desktop)
-	- ❌ Chrome (Android)
-	- ❌ Safari
-	- ❌ Firefox
-- Share note content[^2] (as of July 2024):
-	- ✅ Safari
-	- ✅ Chrome (Android)
-	- ❌ Chrome (Desktop)
-	- ❌ Firefox
-- Insert images from a camera (as of July 2024):
-	- ✅ Safari
-	- ✅ Chrome (Android)
-	- ❌ Chrome (Desktop)
-	- ❌ Firefox
-- Drop images and files from another app (as of July 2024):
-	- ✅ Chrome (Desktop), Safari, Firefox (Desktop)
-	- ❌ Chrome (Android)
-
-
-[^1]: Requires [support for showDirectoryPicker](https://caniuse.com/?search=showDirectoryPicker).
-[^2]: Requires [Web Share API support](https://caniuse.com/?search=web%20share%20api).
-
-
+### What browsers are supported?
+Modern versions of Chromium-based browsers (Chrome, Brave, Edge) and Safari are recommended. Firefox is supported but initial database initialization may take longer.

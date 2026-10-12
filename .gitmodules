@@ -1,0 +1,4 @@
+[submodule "joplin"]
+	path = joplin
+	url = https://github.com/laurent22/joplin.git
+	branch = release-3.7
