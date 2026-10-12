@@ -43,6 +43,7 @@ echo "==> Step 5: Staging build output into pages/..."
 mkdir -p "${PAGES_DIR}"
 rm -rf "${PAGES_DIR:?}"/*
 cp -r "${JOPLIN_DIR}/packages/app-mobile/web/dist/"* "${PAGES_DIR}/"
+touch "${PAGES_DIR}/.nojekyll"
 echo "Staged $(ls -1 "${PAGES_DIR}" | wc -l) files/directories into ${PAGES_DIR}."
 
 if [ "$BUILD_DOCKER" = true ]; then

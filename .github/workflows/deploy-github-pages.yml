@@ -71,6 +71,7 @@ jobs:
         run: |
           mkdir -p pages/
           cp -r joplin/packages/app-mobile/web/dist/* pages/
+          touch pages/.nojekyll
 
       # --- GitHub Pages Deployment ---
       - name: Setup Pages
