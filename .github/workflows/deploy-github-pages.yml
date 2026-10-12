@@ -1,6 +1,13 @@
 name: Build and deploy to pages and container registry
+
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+  schedule:
+    # Run every Sunday at 00:00 UTC to ensure image is always up-to-date with latest Joplin release
+    - cron: '0 0 * * 0'
 
 permissions:
   contents: read
@@ -19,47 +26,64 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      # Step 1: Checkout *your* repository (contains Dockerfile and this workflow)
-      - name: Checkout Workflow Repo
-        uses: actions/checkout@v4
-        # No 'repository' needed, defaults to the current repo
-
-      # Step 2: Checkout Joplin into a subdirectory
-      - name: Checkout Joplin Source
-        uses: actions/checkout@v4
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v7
         with:
-          repository: 'laurent22/joplin'
-          ref: dev
-          path: joplin # Checkout into a 'joplin' subdirectory
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Checkout latest Joplin release
+        run: |
+          if [ ! -d "joplin/.git" ] && [ ! -f "joplin/.git" ]; then
+            git submodule update --init --recursive joplin
+          fi
+          cd joplin
+          git fetch --all --tags --depth=1
+          ALL_BRANCHES="$(git for-each-ref --format '%(refname:short)' 'refs/remotes/origin/*' | sed 's;origin/;;')"
+          RELEASE_BRANCHES="$(echo "$ALL_BRANCHES" | grep -P '^release-[0-9]+\.[0-9]+$')"
+          echo "Found release branches: $RELEASE_BRANCHES"
+          
+          LATEST_RELEASE="release-$(echo "$RELEASE_BRANCHES" \
+              | sed 's/^release-//' \
+              | sort --version-sort \
+              | tail -n1)"
+          if [[ "$LATEST_RELEASE" = "release-" ]]; then
+            echo "No release branches found, falling back to release-3.7"
+            LATEST_RELEASE="release-3.7"
+          fi
+
+          echo "Switching to branch: $LATEST_RELEASE"
+          git checkout "$LATEST_RELEASE"
+          echo "LATEST_RELEASE=$LATEST_RELEASE" >> "$GITHUB_ENV"
 
       - name: Prepare yarn
         run: corepack enable
 
       - name: Install Joplin dependencies
-        working-directory: ./joplin # Specify working directory
+        working-directory: ./joplin
         run: yarn install
 
-      - name: Build Joplin pages
-        working-directory: ./joplin/packages/app-mobile # Specify working directory
+      - name: Build Joplin web app
+        working-directory: ./joplin/packages/app-mobile
         run: yarn web
 
-      - name: Create pages directory and Copy Joplin artifact
+      - name: Create pages directory and copy build artifacts
         run: |
-          mkdir -p pages/ # Ensure pages directory exists at the root
-          cp -r joplin/packages/app-mobile/web/dist/* pages/ # Copy contents into pages/
+          mkdir -p pages/
+          cp -r joplin/packages/app-mobile/web/dist/* pages/
 
       # --- GitHub Pages Deployment ---
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Upload artifact for Pages
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
-          path: 'pages/' # Upload the created pages directory
+          path: 'pages/'
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
       # --- Docker Container Deployment ---
       - name: Login to GitHub Container Registry
@@ -69,22 +93,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set image tag
+      - name: Set image tags
         id: vars
-        run: echo "tag=$(date +'%Y%m%d-%H%M%S')" >> "$GITHUB_OUTPUT"
+        run: |
+          TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
+          echo "timestamp=$TIMESTAMP" >> "$GITHUB_OUTPUT"
+          JOPLIN_VER=$(node -p "require('./joplin/packages/app-mobile/package.json').version" 2>/dev/null || echo "$LATEST_RELEASE")
+          echo "version=$JOPLIN_VER" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        # No 'with: driver: docker-container' needed unless specific features required
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
-          context: . # Use the root of the workspace as context
-          # Dockerfile should be found at ./Dockerfile
-          # COPY ./pages/ will work because pages/ exists at the root
+          context: .
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ steps.vars.outputs.tag }}
+            ghcr.io/${{ github.repository }}:${{ steps.vars.outputs.version }}
+            ghcr.io/${{ github.repository }}:${{ steps.vars.outputs.timestamp }}
